@@ -4,14 +4,19 @@ import argparse
 import pprint
 
 
+DEFAULT_ACCOUNT='ctbrowngrp'
 PARTITION_REPORT_ORDER = ['high2', 'med2', 'bmh', 'bmm']
 
 
-def parse_squeue_output():
+def parse_squeue_output(account):
     """Parses the output of squeue and returns a list of dictionaries."""
 
+    cmd = ['squeue', '--noconvert']
+    if account:
+        cmd += ['-A', account]
+
     # Run the squeue command and capture the output
-    result = subprocess.run(['squeue', '-A', 'ctbrowngrp', '--noconvert'], stdout=subprocess.PIPE, text=True)
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
     output = result.stdout.splitlines()
 
     # Parse the header line to get the column names
@@ -44,6 +49,8 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('-u', '--user', help='filter on user')
     p.add_argument('-p', '--partition', help='filter on partition')
+    p.add_argument('-A', '--account', help='report on account',
+                   default=DEFAULT_ACCOUNT)
     args = p.parse_args()
 
     if args.user:
@@ -53,15 +60,20 @@ def main():
         print(f'(filtering on partition {args.partition})')
     
     # Get the list of jobs
-    jobs = parse_squeue_output()
+    jobs = parse_squeue_output(args.account)
 
     partitions = {}
     users = {}
 
     # Print the jobs
+    skipped_multi_node_jobs = 0
     for job in jobs:
         user = job['USER']
         partition = job['PARTITION']
+
+        if job['NODES'] != '1': # skip to simplify our lives
+            skipped_multi_node_jobs += 1
+            continue
 
         assert job['NODES'] == '1', job # simplify our lives
         if args.user and user != args.user:
@@ -100,6 +112,9 @@ def main():
         mem = values['MEM']
         cpu = values['CPU']
         print(f"   user {user:13}: {mem:-6.1f} GB used, {cpu:-3} processors")
+
+    if skipped_multi_node_jobs:
+        print(f'\n** WARNING: {skipped_multi_node_jobs} jobs with NODES > 1 were skipped, because Titus is lazy.')
         
 
 if __name__ == '__main__':
